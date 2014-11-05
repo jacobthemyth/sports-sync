@@ -4,17 +4,55 @@ var request = require('request');
 var Firebase = require('firebase');
 var ref = new Firebase('http://sportsproject.firebaseio.com');
 
-var apiURL = 'https://api.etsy.com/v2/listings/active?api_key=cdwxq4soa7q4zuavbtynj8wx&keywords=board games&includes=Images';
+var allGamesURL = 'https://www.kimonolabs.com/api/aubt5o1k?apikey=kImHEUcaMlxMzi9OunQSth2GLHvtWyCl';
+var specificURL = "https://www.kimonolabs.com/api/34hkhdqk?apikey=kImHEUcaMlxMzi9OunQSth2GLHvtWyCl";
 
-request(apiURL, function(error, response, body){
-  if(!error && response.statusCode == 200){
-    var stuff = JSON.parse(body);
-    // do something like ref.update();
-    ref.child('coooool').set(stuff, function(error){
-      process.exit(0);
-    });
+request(allGamesURL, function (error, response, body) {
+  if(!error && response.statusCode == 200) {
+    var data = body;
+    var parsed = JSON.parse(data);
+    var list = parsed.results.collection1;
+    var splitUrl = "http://sports.yahoo.com/ncaaf/";
+
+    for (var i in list) {
+      var url = list[i].href.href;
+      var splitUrl = "http://sports.yahoo.com/ncaaf/";
+      var splitArray = url.split(splitUrl);
+      var endPoint = (splitArray[1]);
+      var parameter = "&kimpath2=" + endPoint;
+      console.log('Sending request for: ' + specificURL + parameter);
+      request(specificURL + parameter, function (error, response, body) {
+        if(!error && response.statusCode == 200) {
+          console.log(body);
+        } else {
+          console.log("Error", response, body);
+        }
+      })
+    }
+
+    // process.exit(0);
   } else {
-    console.error(error);
+    console.log(error);
   }
-});
+})
 
+
+
+//Send a request to CFB All Games
+//Using what is returned, each over the results of the different games
+//Go to scores.href on each and split after "http://sports.yahoo.com/ncaaf/" selector
+//Grab the index of 1 on each of those and push them to a new array
+//Each over this final array and send a request to all of the game-specific urls
+
+
+// request(apiURL, function(error, response, body){
+//   if(!error && response.statusCode == 200){
+//     var data = JSON.parse(body);
+//     // do something like ref.update();
+//     ref.child('coooool').set(data, function(error){
+//       process.exit(0);
+//     });
+//   } else {
+//     console.error(error);
+//   }
+// });
