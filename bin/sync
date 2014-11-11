@@ -4,14 +4,161 @@ var _ = require('underscore');
 
 var Firebase = require('firebase');
 var ref = new Firebase('http://sportsproject.firebaseio.com');
-//
+var testref = new Firebase('http://sportsproject.firebaseio.com/test');
+var gamesref = new Firebase('http://sportsproject.firebaseio.com/games');
+
 var allGamesURL = 'https://www.kimonolabs.com/api/aubt5o1k?apikey=kImHEUcaMlxMzi9OunQSth2GLHvtWyCl';
 var specificURL = "https://www.kimonolabs.com/api/34hkhdqk?apikey=kImHEUcaMlxMzi9OunQSth2GLHvtWyCl";
 
 var gameList = [];
+var firebaseQueue = [];
 
-function getGameList()
-{
+//We need one function that is capable of finding NEW games
+//  - Pulls in games from the first API
+//  - Pulls in collection of games from firebase
+//  - Compares the custom ID of each to determine whether it exists in the databse
+//    - If it isn't already in the database, push() to it making a child node for that game
+//    - If so, don't push() to the games section but update the isLive property
+//      - This is done by looking at the first quarter time and if it exists, making isLive:false
+//      - If the first quarter score exists, isLive:true
+//      - If (timeLeft==='FINAL') {isLive:false}
+
+var toBeUpdated = [];
+
+function updateNewGames() {
+
+  allGamesList = [];
+  storedGames = [];
+  console.log('Sending request to get a list of all of the games...');
+  request(allGamesURL, function (error, response, body) {
+    if(!error && response.statusCode == 200) {
+      // console.log(body);
+      allgames = JSON.parse(body);
+      allGamesList = allgames.results.collection1;
+      console.log('Retrieving games stored on firebase...');
+
+      gamesref.once('value', function (snapshot) {
+        snapshot.forEach(function (i) {
+          storedGames.push(i.val());
+        });
+
+        // We have access to both allGamesList(yahoo) and storedGames(firebase)
+        //Comparing the allGamesList(yahoo) to the storedGames(firebase)
+
+        function handleNewGame(game) {
+          var id = game.visitor + game.home;
+          var result = storedGames.some(function(i) {
+            return i.id == id;
+          });
+          if (result === true) {
+            toBeUpdated.push(game);
+          } else {
+            firebaseQueue.push(game);
+          }
+        };
+
+        _.each(allGamesList, handleNewGame);
+
+        console.log("Filtered out differences between current firebase and yahoo sports page")
+        //If there are games in the que at this point, we wnat to iterate over
+        //them one at a time
+
+        if (firebaseQueue.length > 0 ) {
+          console.log("The Firebase queue has " + firebaseQueue.length + " items to add to the collection");
+          var game = firebaseQueue.shift();
+          putInFirebase(game);
+        } else {
+        // waits 10 minutes before checking again(subject to change)
+          console.log("No more items to add to Firebase. Waiting ten minutes to retry...")
+          setTimeout(function () {
+            updateNewGames();
+          },600000);
+        }
+      });
+
+      } else {
+        console.log('Error: ', error);
+      };
+
+  })
+
+}
+
+function putInFirebase(game) {
+  var url = game.href.href;
+  var splitUrl = "http://sports.yahoo.com/ncaaf/";
+  var splitArray = url.split(splitUrl);
+  var endPoint = (splitArray[1]);
+  var parameter = "&kimpath2=" + endPoint;
+  var gameUrl = specificURL + parameter;
+  console.log('Sending request for: ' + gameUrl);
+  request(gameUrl, function(error, response, body) {
+    if (!error && response.statusCode == 200) {
+      var parsedBody = JSON.parse(body);
+      var results = parsedBody.results.collection1;
+      var teamOne = results[0];
+      var teamTwo = results[1];
+      var Id = teamOne.teamName.text + teamTwo.teamName.text;
+
+
+      var thisgame = {
+        id:Id,
+        timeLeft:teamOne.timeLeft,
+        url:gameUrl,
+
+        teamOne: {
+          id:1,
+          teamName:teamOne.teamName.text,
+          rank: teamOne.rank,
+          quarterOneScore: teamOne.quarterOneScore,
+          quarterTwoScore: teamOne.quarterTwoScore,
+          quarterThreeScore: teamOne.quarterThreeScore,
+          quarterFourScore: teamOne.quarterFourScore,
+          totalScore: teamOne.totalScore,
+          logo: teamOne.logo.src,
+        },
+
+        teamTwo: {
+          id:2,
+          teamName:teamTwo.teamName.text,
+          rank: teamTwo.rank,
+          quarterOneScore: teamTwo.quarterOneScore,
+          quarterTwoScore: teamTwo.quarterTwoScore,
+          quarterThreeScore: teamTwo.quarterThreeScore,
+          quarterFourScore: teamTwo.quarterFourScore,
+          totalScore: teamTwo.totalScore,
+          logo: teamTwo.logo.src,
+        }
+      };
+
+      gamesref.push(thisgame);
+      console.log("Pushed game to games collection");
+
+      if (firebaseQueue.length > 0) {
+        var next = firebaseQueue.shift();
+        setTimeout(function () {
+          putInFirebase(next)
+        },5000)
+        console.log(next.visitor + ' vs. ' + next.home + ' next in the queue');
+      } else {
+        updateNewGames();
+      }
+
+    } else {
+      console.log(error);
+    }
+  })
+};
+
+
+updateNewGames();
+
+// findNewGames();
+
+
+
+function getGameList()  {
+  console.log("Sending request to grab all current and upcoming games...");
   request(allGamesURL, function (error, response, body) {
     if(!error && response.statusCode == 200) {
 
@@ -30,30 +177,4 @@ function getGameList()
     }
   })
 }
-
-function getGameData(game) {
-  var url = game.href.href;
-  var splitUrl = "http://sports.yahoo.com/ncaaf/";
-  var splitArray = url.split(splitUrl);
-  var endPoint = (splitArray[1]);
-  var parameter = "&kimpath2=" + endPoint;
-  console.log('Sending request for: ' + specificURL + parameter);
-  request(specificURL + parameter, function (error, response, body) {
-    if (!error && response.statusCode ==200) {
-      console.log(body);
-    } else {
-      console.log(error);
-    }
-
-    if (gameList.length > 0) {
-    var newData = gameList.shift();
-    setTimeout(function () {
-      getGameData(newData)
-    },5000)
-    } else {
-      getGameList();
-    }
-  })
-
-}
-getGameList();
+// getGameList();
