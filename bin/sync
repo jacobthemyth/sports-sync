@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 var request = require('request');
 var _ = require('underscore');
+var uuid = require('node-uuid');
 
 var Firebase = require('firebase');
 var ref = new Firebase('http://sportsproject.firebaseio.com');
@@ -23,13 +24,14 @@ var firebaseQueue = [];
 //      - If the first quarter score exists, isLive:true
 //      - If (timeLeft==='FINAL') {isLive:false}
 
-var toBeUpdated = [];
-
-function updateNewGames() {
+function manageNewGames() {
 
   allGamesList = [];
-  storedGames = [];
   console.log('Sending request to get a list of all of the games...');
+
+  //This is where we get the list of all of the games from Yahoo's
+  //scoreboard page.
+
   request(allGamesURL, function (error, response, body) {
     if(!error && response.statusCode == 200) {
       // console.log(body);
@@ -37,51 +39,55 @@ function updateNewGames() {
       allGamesList = allgames.results.collection1;
       console.log('Retrieving games stored on firebase...');
 
-      gamesref.once('value', function (snapshot) {
-        snapshot.forEach(function (i) {
-          storedGames.push(i.val());
-        });
-
         // We have access to both allGamesList(yahoo) and storedGames(firebase)
         //Comparing the allGamesList(yahoo) to the storedGames(firebase)
 
-        function handleNewGame(game) {
-          var id = game.visitor + game.home;
-          var result = storedGames.some(function(i) {
-            return i.id == id;
+
+
+        function updateNewGames(game) {
+          var Id = game.visitor + game.home;
+          var id = Id.replace('.','');
+          gamesref.orderByChild('Id').equalTo(id).on('value', function (snapshot) {
+            if (snapshot.val()) {
+              console.log("Match Found! Updating isLive property now.")
+              //update the isLive property;
+            } else {
+              // console.log('id: ' + id);
+              // console.log('snapshot: ' + snapshot.val());
+              firebaseQueue.push(game);
+              console.log('This game does not exist yet. Added to queue.');
+            }
+
+            if(allGamesList.length > 0) {
+              g = allGamesList.shift();
+              updateNewGames(g);
+            } else {
+
+
+              if (firebaseQueue.length > 0 ) {
+                console.log("The Firebase queue has " + firebaseQueue.length + " items to add to the collection");
+                var i = firebaseQueue.shift();
+                putInFirebase(i);
+              } else {
+              // waits 5 minutes before checking again(subject to change)
+                console.log("No more items to add to Firebase. Waiting five minutes to retry...")
+                setTimeout(function () {
+                  manageNewGames();
+                },300000);
+              }
+
+
+            }
           });
-          if (result === true) {
-            toBeUpdated.push(game);
-          } else {
-            firebaseQueue.push(game);
-          }
         };
 
-        _.each(allGamesList, handleNewGame);
+      var g = allGamesList.shift();
+      updateNewGames(g);
 
-        console.log("Filtered out differences between current firebase and yahoo sports page")
-        //If there are games in the que at this point, we wnat to iterate over
-        //them one at a time
-
-        if (firebaseQueue.length > 0 ) {
-          console.log("The Firebase queue has " + firebaseQueue.length + " items to add to the collection");
-          var game = firebaseQueue.shift();
-          putInFirebase(game);
-        } else {
-        // waits 10 minutes before checking again(subject to change)
-          console.log("No more items to add to Firebase. Waiting ten minutes to retry...")
-          setTimeout(function () {
-            updateNewGames();
-          },600000);
-        }
-      });
-
-      } else {
-        console.log('Error: ', error);
-      };
-
+    } else {
+      console.log('Error: ', error);
+    };
   })
-
 }
 
 function putInFirebase(game) {
@@ -99,15 +105,16 @@ function putInFirebase(game) {
       var teamOne = results[0];
       var teamTwo = results[1];
       var Id = teamOne.teamName.text + teamTwo.teamName.text;
+      var id = Id.replace('.','');
 
 
       var thisgame = {
-        id:Id,
+        Id:id,
         timeLeft:teamOne.timeLeft,
         url:gameUrl,
 
         teamOne: {
-          id:1,
+          id:uuid.v1(),
           teamName:teamOne.teamName.text,
           rank: teamOne.rank,
           quarterOneScore: teamOne.quarterOneScore,
@@ -119,7 +126,7 @@ function putInFirebase(game) {
         },
 
         teamTwo: {
-          id:2,
+          id:uuid.v1(),
           teamName:teamTwo.teamName.text,
           rank: teamTwo.rank,
           quarterOneScore: teamTwo.quarterOneScore,
@@ -132,49 +139,23 @@ function putInFirebase(game) {
       };
 
       gamesref.push(thisgame);
-      console.log("Pushed game to games collection");
+      console.log("Pushed " + thisgame.id +  " to games collection");
 
       if (firebaseQueue.length > 0) {
         var next = firebaseQueue.shift();
         setTimeout(function () {
           putInFirebase(next)
-        },5000)
+        },15000)
         console.log(next.visitor + ' vs. ' + next.home + ' next in the queue');
       } else {
-        updateNewGames();
+        manageNewGames();
       }
 
     } else {
-      console.log(error);
+      console.log(response);
     }
   })
 };
 
 
-updateNewGames();
-
-// findNewGames();
-
-
-
-function getGameList()  {
-  console.log("Sending request to grab all current and upcoming games...");
-  request(allGamesURL, function (error, response, body) {
-    if(!error && response.statusCode == 200) {
-
-      var data = body;
-      var parsed = JSON.parse(data);
-      gameList = parsed.results.collection1;
-
-      if(gameList.length > 0)
-      {
-        var g = gameList.shift();
-        getGameData(g);
-      }
-
-    } else {
-      console.log('Error',error);
-    }
-  })
-}
-// getGameList();
+manageNewGames();
