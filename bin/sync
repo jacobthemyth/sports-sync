@@ -56,13 +56,13 @@ function manageNewGames() {
               });
               var gameref = gamesref.child(gameId);
 
-              if (game.time != '' && game.time != 'Final') {
+              // if (game.time != '' && game.time != 'Final') {
                 console.log(Id + ' is live');
                 gameref.update({isLive:true});
-              } else {
-                console.log(Id + ' is not live');
-                gameref.update({isLive:false});
-              }
+              // } else {
+              //   console.log(Id + ' is not live');
+              //   gameref.update({isLive:false});
+              // }
 
               if(allGamesList.length > 0) {
                 g = allGamesList.shift();
@@ -86,7 +86,7 @@ function manageNewGames() {
 }
 
 function putInFirebase() {
-  console.log("Running putInFirebase")
+  console.log("Running putInFirebase with " + firebaseQueue.length + ' games to put in firebase.')
   if(firebaseQueue.length <= 0){
     return; //exit
   }
@@ -146,16 +146,6 @@ function putInFirebase() {
       gamesref.push(thisgame);
       console.log("Pushed " + thisgame.Id +  " to games collection");
 
-      // if (firebaseQueue.length > 0) {
-      //   var next = firebaseQueue.shift();
-      //   setTimeout(function () {
-      //     putInFirebase(next)
-      //   },15000)
-      //   console.log(next.visitor + ' vs. ' + next.home + ' next in the queue');
-      // } else {
-
-      // }
-
     } else {
       console.log(response);
     }
@@ -171,12 +161,13 @@ function findLiveGames() {
     if (liveGames.length > 0) {
       console.log(liveGames.length + ' games to update');
       var i = liveGames.shift();
+      console.log('Calling updateLiveGames from findLiveGames with ' + i);
       updateLiveGames(i);
     } else {
-      console.log('No live games to update, will check again in five minutes');
+      console.log('No live games to update, will check again in 10 seconds');
       setTimeout(function () {
         findLiveGames();
-      },300000);
+      },10000);
     }
   })
 }
@@ -186,6 +177,7 @@ findLiveGames();
 function updateLiveGames(game) {
   console.log('Running updateLiveGames');
   var gameUrl = game.url;
+  console.log('Sending request for ' + gameUrl);
   request(gameUrl, function(error, response, body) {
     if (!error && response.statusCode == 200) {
       var parsedBody = JSON.parse(body);
@@ -239,7 +231,9 @@ function updateLiveGames(game) {
 
       if (liveGames.length > 0) {
         var i = liveGames.shift();
-        updateLiveGames();
+        console.log(i);
+        console.log('calling updateLliveGames from inside updateLiveGames');
+        updateLiveGames(i);
       } else {
         setTimeout(function () {
           findLiveGames();
@@ -257,7 +251,7 @@ console.log("Starting initial run");
 manageNewGames();
 putInFirebase();
 
-// check for new games every 30 seconds
+// check for new games every 5 minutes
 setInterval(function() {
   manageNewGames(),
   console.log("set interval for manage new games");
